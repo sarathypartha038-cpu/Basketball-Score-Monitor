@@ -107,15 +107,22 @@ function getPeriods(box,g){
 function finalPair(g){const m=officialDetail(g);if(m?.FT)return [m.FT.teamA??null,m.FT.teamB??null];return [g.local?.score??g.home?.score??null,g.road?.score??g.away?.score??null]}
 function state(g){
  let m=officialDetail(g);
- // Status must come from the league API/Worker. Do not infer it from
- // played flags, FT scores, quarter scores, or elapsed kickoff time.
- const sources=[m,g].filter(Boolean);
- const statusKeys=["gameStatus","matchStatus","status","state","phase","statusName","matchState","gameState"];
- const raw=sources.map(x=>String(getStatusValue(x,statusKeys)||"").trim().toUpperCase()).filter(Boolean);
- const joined=raw.join(" | ");
 
- // Explicit terminal statuses.
- if(raw.some(v=>/^(FT|AET|FINAL|FINISHED|COMPLETED|ENDED|CLOSED|FULL.?TIME|AFTER.?EXTRA.?TIME)$/.test(v))||
+ // EuroCup fixtures API explicitly supplies a boolean `played` field.
+ // `gameStatus` remains "Confirmed" even for completed games, so for
+ // EuroCup use `played` as the authoritative Played/Upcoming indicator.
+ // Check true before other statuses; false is handled after explicit Live.
+ if(g?._leagueApi==="eurocup" && g.played===true)return "PLAYED";
+
+ // Status must come from the league API/Worker. Do not infer it from
+ // FT scores, quarter scores, or elapsed kickoff time.
+ const sources=[m,g].filter(Boolean);
+ const statusKeys=["gameStatus","matchStatus","status","statusCode","state","phase","statusName","matchState","gameState"];
+ const raw=sources.map(x=>String(getStatusValue(x,statusKeys)||"").trim().toUpperCase()).filter(Boolean);
+
+ // FIBA GDAP match-detail API uses CLOS for a closed/completed game.
+ // VALID is a data/result validity code, not a match-state code.
+ if(raw.some(v=>/^(CLOS|CLOSED|FT|AET|FINAL|FINISHED|COMPLETED|ENDED|FULL.?TIME|AFTER.?EXTRA.?TIME)$/.test(v))||
     raw.some(v=>/\b(FINAL|FINISHED|COMPLETED|FULL.?TIME|AFTER.?EXTRA.?TIME)\b/.test(v)))return"PLAYED";
 
  // Explicit live statuses.
@@ -124,6 +131,11 @@ function state(g){
 
  // Explicit scheduled/not-started statuses.
  if(raw.some(v=>/\b(UPCOMING|SCHEDULED|CONFIRMED|NOT.?STARTED|FIXTURE|PRE.?MATCH|VALID)\b/.test(v)))return"UPCOMING";
+
+ // EuroCup `played:false` means the game has not been completed.
+ // Keep this after explicit live checks so an in-progress game is not
+ // incorrectly classified as Upcoming.
+ if(g?._leagueApi==="eurocup" && g.played===false)return"UPCOMING";
 
  // Some feeds expose a simple textual status that can be normalized safely.
  if(raw.some(v=>/^(NS|TBD|PENDING)$/.test(v)))return"UPCOMING";
@@ -157,7 +169,12 @@ async function loadOne(comp,start,end){
  let loaded=games.filter(g=>{
    let d=dateISO(g.localDate||g.date||g.gameDate||g.dateTime||g.gameDateTime);
    return d&&d>=start&&d<=end;
- }).map(g=>({comp,g,box:null,cfg}));
+ }).map(g=>{
+   // Keep the API identity on each fixture so league-specific status fields
+   // are interpreted only for the league that supplies them.
+   g._leagueApi = cfg.league || cfg.mode;
+   return {comp,g,box:null,cfg};
+ });
  // FIBA fixtures provide the fixture index first. Fetch each selected match's
  // official detail separately so FT, quarter and overtime scores are available.
  let detailErrors=0;
@@ -208,7 +225,7 @@ function setTab(t){tab=t;document.querySelectorAll(".tab").forEach(b=>b.classLis
 function toggleLeague(id){let e=document.getElementById(id);e.classList.toggle("collapsed");e.querySelector(".league-head button").textContent=e.classList.contains("collapsed")?"▾":"▴"}
 function render(){let start=$("startDate").value,end=$("endDate").value,q=$("search").value.toLowerCase(),dateRows=matchRows.filter(m=>{let d=gd(m.g);return d&&d>=start&&d<=end}),valid=dateRows.filter(m=>{let s=state(m.g);return (tab==="ALL"||tab===s)&&(!q||(m.comp.competition+" "+teamName(m.g,true)+" "+teamName(m.g,false)).toLowerCase().includes(q))});$("allCount").textContent=dateRows.length;$("liveCount").textContent=dateRows.filter(m=>state(m.g)==="LIVE").length;$("playedCount").textContent=dateRows.filter(m=>state(m.g)==="PLAYED").length;$("upcomingCount").textContent=dateRows.filter(m=>state(m.g)==="UPCOMING").length;
  let out="";competitions.forEach((c,i)=>{let rows=valid.filter(m=>m.comp.fileName===c.fileName);if(!rows.length)return;let id="lg"+i;out+="<section class='league' id='"+id+"'><div class='league-head'><span>"+esc(c.sport)+"</span><span>·</span><span>"+esc(c.country)+": "+esc(c.competition)+"</span><span class='muted'>"+rows.length+" matches</span><button onclick='toggleLeague(\""+id+"\")'>▴</button></div><div class='league-body'><div class='score-head'><span>Status</span><span>Team</span><span>FT</span><span>Q1</span><span>Q2</span><span>Q3</span><span>Q4</span><span>OT</span></div>";
- rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ft=finalPair(m.g),ftH=ft[0]??"—",ftA=ft[1]??"—";if(st==="UPCOMING"&&Number(ftH)===0&&Number(ftA)===0){ftH="—";ftA="—";}let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(officialDetail(m.g)?.gameStatus||officialDetail(m.g)?.status||m.g.gameStatus||m.g.status||"Live"):st==="UPCOMING"?"Scheduled":"Unknown";let cell=h=>[0,1,2,3,4,5].map(i=>{let v=ps[i]?(h?ps[i].h:ps[i].a):"";if(st==="UPCOMING"&&Number(v)===0)v="—";return "<span class='period'>"+(v??"")+"</span>"}).join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
+ rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ft=finalPair(m.g),ftH=ft[0]??"—",ftA=ft[1]??"—";if(st==="UPCOMING"&&Number(ftH)===0&&Number(ftA)===0){ftH="—";ftA="—";}let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(officialDetail(m.g)?.gameStatus||officialDetail(m.g)?.status||officialDetail(m.g)?.statusCode||m.g.gameStatus||m.g.status||m.g.statusCode||"Live"):st==="UPCOMING"?"Scheduled":"Unknown";let cell=h=>[0,1,2,3,4,5].map(i=>{let v=ps[i]?(h?ps[i].h:ps[i].a):"";if(st==="UPCOMING"&&Number(v)===0)v="—";return "<span class='period'>"+(v??"")+"</span>"}).join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
  out+="</div></section>"});$("results").innerHTML=out||"<div class='empty'>No matches found. Check the date range, registered file names and league Worker configuration.</div>"}
 function toggleAuto(){autoOn=true;$("auto").textContent="Auto-refresh: ON";restartAuto()}function restartAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;autoOn=true;$("auto").textContent="Auto-refresh: ON";autoTimer=setInterval(refreshAll,Number($("interval").value)*1000)}
 function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}

@@ -128,7 +128,27 @@ async function loadOne(comp,start,end){
    let d=dateISO(g.localDate||g.date||g.gameDate||g.dateTime||g.gameDateTime);
    return d&&d>=start&&d<=end;
  }).map(g=>({comp,g,box:null,cfg}));
- return {loaded,errors:0,total:Number(fx.totalFixturesInCompetition||games.length)};
+ // FIBA fixtures provide the fixture index first. Fetch each selected match's
+ // official detail separately so FT, quarter and overtime scores are available.
+ let detailErrors=0;
+ if(cfg.mode==="fiba"&&loaded.length){
+  let next=0;
+  async function detailWorker(){
+   while(next<loaded.length){
+    const item=loaded[next++];
+    const id=item.g.gameId??item.g.gdapGameId??item.g.id??item.g.matchId;
+    if(id===undefined||id===null||id===""){item.g._detailError="Fixture has no gameId";detailErrors++;continue;}
+    try{
+     const detail=await json(cfg.worker+"/api/match?gameId="+encodeURIComponent(id));
+     if(!detail.match)throw Error(detail.error||"Match detail response has no match object");
+     item.g._officialMatch=detail.match;
+     item.g._detailError="";
+    }catch(e){item.g._detailError=e.message;detailErrors++;}
+   }
+  }
+  await Promise.all(Array.from({length:Math.min(5,loaded.length)},()=>detailWorker()));
+ }
+ return {loaded,errors:detailErrors,total:Number(fx.totalFixturesInCompetition||games.length)};
 }
 async function refreshAll(){
  if(busy)return;
@@ -142,7 +162,7 @@ async function refreshAll(){
    try{
     let r=await loadOne(c,start,end);
     all.push(...r.loaded);
-    totals.push(c.competition+": "+r.loaded.length+"/"+r.total);
+    totals.push(c.competition+": "+r.loaded.length+"/"+r.total+(r.errors?" ("+r.errors+" detail errors)":""));
    }catch(e){errors.push(c.competition+": "+e.message)}
   }
   matchRows=all;

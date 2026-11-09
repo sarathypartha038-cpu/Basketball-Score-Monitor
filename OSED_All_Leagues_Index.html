@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OSED — All Competitions Score Index</title>
+<style>
+:root{--navy:#172b3d;--navy2:#213d54;--bg:#f3f5f7;--line:#dfe4e8;--muted:#77838d;--red:#df174b;--green:#17865d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#26333d;font:14px Arial, sans-serif}
+button,input,select{font:inherit}button{cursor:pointer;border:1px solid #cbd3da;border-radius:6px;padding:9px 13px;background:#fff;color:#26333d;font-weight:700}
+button.primary{background:var(--navy);color:#fff;border-color:var(--navy)}button:disabled{opacity:.5;cursor:wait}
+input,select{width:100%;padding:10px;border:1px solid #cbd3da;border-radius:6px;background:white}
+header{background:var(--navy);color:#fff;padding:15px 20px;display:flex;align-items:center;gap:12px}
+header h1{font-size:20px;margin:0}header .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+main{max-width:1500px;margin:18px auto;padding:0 14px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:9px;padding:14px;margin-bottom:13px}
+.login-wrap{max-width:420px;margin:8vh auto}.login-wrap h2{margin-top:0}.field{display:flex;flex-direction:column;gap:5px;margin:10px 0}.field label{font-size:12px;color:#64717b;font-weight:700}
+.login-actions{display:flex;gap:8px;margin-top:14px}.login-actions button{flex:1}
+.toolbar{display:flex;align-items:end;gap:9px;flex-wrap:wrap}.toolbar .field{margin:0;min-width:150px}.spacer{flex:1}.muted{color:var(--muted);font-size:12px}
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.tab.active{background:var(--navy);color:#fff;border-color:var(--navy)}
+.count{font-size:11px;margin-left:5px;background:#e8edf1;padding:2px 6px;border-radius:12px}.tab.active .count{background:#536b80;color:white}
+.competition{background:#fff;border:1px solid var(--line);margin-bottom:12px}.comp-head{background:#eceff1;display:flex;align-items:center;gap:10px;padding:10px 13px;font-weight:700;color:#52616c;letter-spacing:.04em}
+.comp-head .comp-sub{font-size:11px;color:#89949c;font-weight:400;letter-spacing:0}.comp-head button{margin-left:auto;border:0;background:transparent;font-size:20px;padding:0 6px;color:#63727d}
+.comp-body{padding:0}.comp-frame{width:100%;height:650px;border:0;display:block;background:#fff}.comp-error{padding:18px;color:#8b3a3a}
+.empty{padding:35px;text-align:center;color:#89949c;background:#fff;border:1px solid var(--line)}
+.admin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}.admin-panel h3{margin:0 0 8px}.note{font-size:12px;color:#77838d;line-height:1.5}
+.comp-list{width:100%;border-collapse:collapse;margin-top:10px}.comp-list td,.comp-list th{text-align:left;border-bottom:1px solid var(--line);padding:9px 7px;font-size:12px}.comp-list th{color:#687681}
+.toast-area{position:fixed;right:18px;bottom:18px;width:min(380px,calc(100vw - 36px));z-index:10;display:flex;flex-direction:column;gap:8px}.toast{background:#172b3d;color:white;border-left:4px solid #20bd83;border-radius:7px;padding:12px;box-shadow:0 5px 22px #0003}.toast b{display:block;color:#8de4bd;margin-bottom:4px}.hidden{display:none!important}
+@media(max-width:650px){.admin-grid{grid-template-columns:1fr}header{padding:12px}header h1{font-size:16px}.comp-frame{height:550px}}
+</style>
+</head>
+<body>
+<header><h1>OSED — Basketball Scores</h1><div class="right"><span id="userLabel" class="muted" style="color:#d4dce2"></span><button id="logoutBtn" class="hidden" onclick="logout()">Logout</button></div></header>
+<main>
+<section id="loginView" class="panel login-wrap">
+ <h2>Sign in</h2><p class="muted">Choose your access gateway.</p>
+ <div class="field"><label>Username</label><input id="username" autocomplete="username" placeholder="Enter username"></div>
+ <div class="field"><label>Password</label><input id="password" type="password" autocomplete="current-password" placeholder="Enter password" onkeydown="if(event.key==='Enter')login()"></div>
+ <div class="login-actions"><button class="primary" onclick="login('normal')">Normal User</button><button onclick="login('admin')">Admin User</button></div>
+ <p id="loginError" class="note" style="color:#c22"></p>
+</section>
+
+<section id="appView" class="hidden">
+ <section class="panel toolbar">
+  <div class="field"><label>Start date</label><input type="date" id="startDate"></div>
+  <div class="field"><label>End date</label><input type="date" id="endDate"></div>
+  <button class="primary" onclick="refreshIndex()">↻ Refresh Index</button>
+  <button onclick="toggleAuto()" id="autoBtn">Auto-refresh: OFF</button>
+  <div class="field"><label>Interval</label><select id="interval" onchange="restartAuto()"><option value="30">30 sec</option><option value="60">1 min</option><option value="120">2 min</option></select></div>
+  <span class="spacer"></span><span class="muted" id="updated">Not refreshed</span>
+ </section>
+ <section class="panel hidden admin-panel" id="adminPanel">
+  <h3>Admin — Add Competition</h3>
+  <div class="admin-grid">
+   <div class="field"><label>Sport</label><input id="sport" placeholder="Basketball"></div>
+   <div class="field"><label>Country</label><input id="country" placeholder="Turkey"></div>
+   <div class="field"><label>Competition Name</label><input id="competition" placeholder="BSL"></div>
+   <div class="field"><label>File Name / GitHub path</label><input id="fileName" placeholder="Turkey_BSL.html"></div>
+  </div>
+  <div class="toolbar"><button class="primary" onclick="addCompetition()">Add Competition</button><button onclick="saveRegistry()">Export Registry JSON</button><button onclick="document.getElementById('registryUpload').click()">Import Registry JSON</button><input id="registryUpload" type="file" accept=".json,application/json" class="hidden" onchange="importRegistry(event)"></div>
+  <p class="note">Competition entries are saved in this browser. Export the registry JSON and commit it to your GitHub repository to share the list across devices. This standalone page does not have permission to write files to GitHub automatically.</p>
+  <div id="adminList"></div>
+ </section>
+ <nav class="tabs">
+  <button class="tab active" data-tab="ALL" onclick="setTab('ALL')">All Matches</button>
+  <button class="tab" data-tab="LIVE" onclick="setTab('LIVE')">Live</button>
+  <button class="tab" data-tab="PLAYED" onclick="setTab('PLAYED')">Played</button>
+  <button class="tab" data-tab="UPCOMING" onclick="setTab('UPCOMING')">Upcoming</button>
+  <span class="spacer"></span><input id="search" style="max-width:250px" placeholder="Search competition..." oninput="render()">
+ </nav>
+ <div id="competitions"></div>
+</section>
+</main>
+<div class="toast-area" id="toastArea"></div>
+<script>
+/*
+  SET THESE VALUES before publishing to GitHub Pages.
+  Example: owner="your-github-name", repo="basketball-scores", branch="main".
+  The index lists registered .html pages and opens them in league sections.
+*/
+const GITHUB={owner:"YOUR_GITHUB_USERNAME",repo:"YOUR_REPOSITORY",branch:"main",folder:""};
+const REGISTRY_FILE="competitions.json";
+const DEFAULT_COMPETITIONS=[
+ {sport:"Basketball",country:"EuroLeague",competition:"EuroLeague",fileName:"EuroLeague_Score_Viewer.html"},
+ {sport:"Basketball",country:"Europe",competition:"EuroCup",fileName:"EuroCup_Score_Viewer.html"}
+];
+const $=id=>document.getElementById(id);
+let role="",comps=[],activeTab="ALL",autoTimer=null,autoOn=false;
+function login(which){
+ const u=$("username").value.trim(),p=$("password").value;
+ const normal=u==="OSED"&&p==="OSED@123";
+ const admin=u==="Partha Sarathy"&&p==="Radha@123";
+ if((which==="normal"&&normal)||(which==="admin"&&admin)){
+  role=admin?"admin":"normal";sessionStorage.setItem("osed_role",role);showApp();
+ }else $("loginError").textContent="Username or password is incorrect for this gateway.";
+}
+function showApp(){
+ $("loginView").classList.add("hidden");$("appView").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
+ $("userLabel").textContent=role==="admin"?"Admin access":"Normal user";
+ $("adminPanel").classList.toggle("hidden",role!=="admin");
+ loadRegistry().then(()=>refreshIndex());
+}
+function logout(){role="";sessionStorage.removeItem("osed_role");$("appView").classList.add("hidden");$("loginView").classList.remove("hidden");$("logoutBtn").classList.add("hidden");$("userLabel").textContent=""}
+function fileURL(file){if(/^https?:\/\//i.test(file))return file;let path=[GITHUB.folder,file].filter(Boolean).join("/").split("/").map(encodeURIComponent).join("/");return "https://"+GITHUB.owner+".github.io/"+GITHUB.repo+"/"+path}
+function apiURL(path){return "https://api.github.com/repos/"+encodeURIComponent(GITHUB.owner)+"/"+encodeURIComponent(GITHUB.repo)+"/contents/"+path.split("/").map(encodeURIComponent).join("/")+"?ref="+encodeURIComponent(GITHUB.branch)}
+async function loadRegistry(){
+ const local=JSON.parse(localStorage.getItem("osed_competitions")||"null");
+ comps=Array.isArray(local)?local:DEFAULT_COMPETITIONS.slice();
+ if(GITHUB.owner!=="YOUR_GITHUB_USERNAME"&&GITHUB.repo!=="YOUR_REPOSITORY"){
+  try{let r=await fetch(apiURL(REGISTRY_FILE),{headers:{Accept:"application/vnd.github.raw+json"}});if(r.ok){let data=await r.json();if(Array.isArray(data))comps=data}}catch(e){console.warn("GitHub registry not loaded",e)}
+ }
+ localStorage.setItem("osed_competitions",JSON.stringify(comps));renderAdminList();
+}
+function addCompetition(){
+ if(role!=="admin")return;
+ let item={sport:$("sport").value.trim(),country:$("country").value.trim(),competition:$("competition").value.trim(),fileName:$("fileName").value.trim()};
+ if(Object.values(item).some(v=>!v)){alert("Enter Sport, Country, Competition Name and File Name.");return}
+ if(comps.some(c=>c.fileName.toLowerCase()===item.fileName.toLowerCase())){alert("This file is already registered.");return}
+ comps.push(item);localStorage.setItem("osed_competitions",JSON.stringify(comps));["sport","country","competition","fileName"].forEach(id=>$(id).value="");renderAdminList();render();
+}
+function renderAdminList(){
+ if(role!=="admin")return;
+ $("adminList").innerHTML="<table class='comp-list'><thead><tr><th>Sport</th><th>Country</th><th>Competition</th><th>File</th><th></th></tr></thead><tbody>"+comps.map((c,i)=>"<tr><td>"+esc(c.sport)+"</td><td>"+esc(c.country)+"</td><td>"+esc(c.competition)+"</td><td>"+esc(c.fileName)+"</td><td><button onclick='removeCompetition("+i+")'>Remove</button></td></tr>").join("")+"</tbody></table>";
+}
+function removeCompetition(i){if(role!=="admin")return;if(confirm("Remove this competition from the index?")){comps.splice(i,1);localStorage.setItem("osed_competitions",JSON.stringify(comps));renderAdminList();render()}}
+function saveRegistry(){
+ if(role!=="admin")return;
+ const blob=new Blob([JSON.stringify(comps,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=REGISTRY_FILE;a.click();URL.revokeObjectURL(a.href);
+}
+function importRegistry(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!Array.isArray(x))throw Error();comps=x;localStorage.setItem("osed_competitions",JSON.stringify(comps));renderAdminList();render()}catch{alert("Invalid registry JSON file.")}};r.readAsText(f);e.target.value=""}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function setTab(t){activeTab=t;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===t));render()}
+function toggleComp(i){let e=$("comp"+i),b=e.querySelector(".comp-head button");e.classList.toggle("collapsed");b.textContent=e.classList.contains("collapsed")?"▾":"▴"}
+function render(){
+ let q=($("search")?.value||"").toLowerCase(),out="";
+ comps.forEach((c,i)=>{
+  let hay=(c.sport+" "+c.country+" "+c.competition+" "+c.fileName).toLowerCase();if(q&&!hay.includes(q))return;
+  out+="<section class='competition' id='comp"+i+"'><div class='comp-head'><span>"+esc(c.sport)+"</span><span>·</span><span>"+esc(c.country)+": "+esc(c.competition)+"</span><span class='comp-sub'>"+esc(c.fileName)+"</span><button title='Collapse / expand' onclick='toggleComp("+i+")'>▴</button></div><div class='comp-body'><iframe class='comp-frame' loading='lazy' src='"+esc(fileURL(c.fileName))+"' title='"+esc(c.competition)+" score viewer'></iframe></div></section>";
+ });
+ $("competitions").innerHTML=out||"<div class='empty'>No competitions registered. Admin can add competitions.</div>";
+}
+function refreshIndex(){
+ $("updated").textContent="Refreshing competition pages…";
+ document.querySelectorAll(".comp-frame").forEach(f=>{try{f.contentWindow.location.reload()}catch(e){f.src=f.src}});
+ $("updated").textContent="Refresh requested · "+new Date().toLocaleTimeString();
+}
+function toggleAuto(){autoOn=!autoOn;$("autoBtn").textContent="Auto-refresh: "+(autoOn?"ON":"OFF");restartAuto()}
+function restartAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;if(autoOn)autoTimer=setInterval(refreshIndex,Number($("interval").value)*1000)}
+function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}
+let now=new Date();$("startDate").value=dateInput(now);$("endDate").value=dateInput(now);
+if(sessionStorage.getItem("osed_role")==="admin"||sessionStorage.getItem("osed_role")==="normal"){role=sessionStorage.getItem("osed_role");showApp()}
+</script>
+</body></html>

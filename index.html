@@ -50,16 +50,23 @@ function rawURL(file){return "https://raw.githubusercontent.com/"+GH.owner+"/"+G
 function pagesURL(file){return "https://"+GH.owner+".github.io/"+GH.repo+"/"+file.split("/").map(encodeURIComponent).join("/")}
 function parseConfig(source,comp){
  const worker=(source.match(/(?:const|let|var)\s+WORKER_URL\s*=\s*['"]([^'"]+)['"]/i)||[])[1];
+ if(!worker)throw Error("Could not detect WORKER_URL in "+comp.fileName);
+
+ // FIBA Europe Cup uses a date-filtered fixtures endpoint and a match-detail
+ // endpoint. It does not declare SEASON_CODE or a /games and /boxscore route.
+ const fibaApi=/\/api\/fixtures\?startDate=|\/api\/match\?gameId=/i.test(source);
+ if(fibaApi){
+  return {worker:worker.replace(/\/$/,""),mode:"fiba",fixturesPath:"/api/fixtures"};
+ }
+
  const season=(source.match(/(?:const|let|var)\s+SEASON_CODE\s*=\s*['"]([^'"]+)['"]/i)||[])[1];
  const gamesRaw=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/games[^'"]*)['"]/i)||[])[1];
  const boxRaw=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/boxscore[^'"]*)['"]/i)||[])[1];
- if(!worker||!season||!gamesRaw||!boxRaw)throw Error("Could not detect WORKER_URL, SEASON_CODE, games route and boxscore route in "+comp.fileName);
- // Strip query fragments from the league HTML route literals. The Index adds
- // the correct season/gameCode parameters itself.
+ if(!season||!gamesRaw||!boxRaw)throw Error("Could not detect SEASON_CODE, games route and boxscore route in "+comp.fileName);
  const gamesPath=gamesRaw.split("?")[0].replace(/\/$/,"");
  const boxPath=boxRaw.split("?")[0].replace(/\/$/,"");
  const league=(gamesPath.match(/\/api\/([^/]+)\/games/i)||[])[1];
- return {worker:worker.replace(/\/$/,""),season,gamesPath,boxPath,league};
+ return {worker:worker.replace(/\/$/,""),season,gamesPath,boxPath,league,mode:"season"};
 }
 async function loadRegistry(){
  let local;try{local=JSON.parse(localStorage.getItem("osed_competitions")||"null")}catch{}
@@ -105,15 +112,22 @@ async function loadOne(comp,start,end){
  let res=await fetch(rawURL(file),{cache:"no-store"});
  if(!res.ok)throw Error("GitHub file HTTP "+res.status+" for "+file);
  let source=await res.text(),cfg=parseConfig(source,comp);
- let fx=await json(cfg.worker+cfg.gamesPath+(cfg.gamesPath.includes("?")?"&":"?")+"season="+encodeURIComponent(cfg.season));
- let games=getGames(fx);
- if(!games.length)throw Error("Fixtures response has no games array");
- // Keep the date filtering local to the Index, but compare the API's localDate first.
+ let requestUrl;
+ if(cfg.mode==="fiba"){
+  requestUrl=cfg.worker+cfg.fixturesPath+"?startDate="+encodeURIComponent(start)+"&endDate="+encodeURIComponent(end);
+ }else{
+  requestUrl=cfg.worker+cfg.gamesPath+(cfg.gamesPath.includes("?")?"&":"?")+"season="+encodeURIComponent(cfg.season);
+ }
+ let fx=await json(requestUrl);
+ let games=cfg.mode==="fiba"?(Array.isArray(fx.fixtures)?fx.fixtures:getGames(fx)):getGames(fx);
+ if(!games.length)throw Error("Fixtures response has no games array for selected dates");
+ // FIBA Worker already filters the fixtures by startDate/endDate. Keep the
+ // local date check as a safeguard; other league APIs are filtered here.
  let loaded=games.filter(g=>{
-   let d=dateISO(g.localDate||g.date||g.gameDate||g.dateTime);
+   let d=dateISO(g.localDate||g.date||g.gameDate||g.dateTime||g.gameDateTime);
    return d&&d>=start&&d<=end;
  }).map(g=>({comp,g,box:null,cfg}));
- return {loaded,errors:0,total:games.length};
+ return {loaded,errors:0,total:Number(fx.totalFixturesInCompetition||games.length)};
 }
 async function refreshAll(){
  if(busy)return;

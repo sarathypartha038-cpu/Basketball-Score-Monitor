@@ -83,16 +83,62 @@ function teamName(g,h){let t=teamObj(g,h);return typeof t==="string"?t:(t.club?.
 function code(g){return String(g.gameCode??g.gamecode??g.code??g.id??g.gameId??"")}
 function nrm(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
 function rowFor(rows,g,h){let name=nrm(teamName(g,h));return rows.find(r=>nrm(r.Team)===name)||rows.find(r=>nrm(r.Team).includes(name)||name.includes(nrm(r.Team)))||rows[h?0:1]||{}}
-function getPeriods(box,g){let a=Array.isArray(box?.ByQuarter)?box.ByQuarter:[],h=rowFor(a,g,true),v=rowFor(a,g,false),out=[];for(let i=1;i<=4;i++)if(h["Quarter"+i]!==undefined||v["Quarter"+i]!==undefined)out.push({label:"Q"+i,h:h["Quarter"+i],a:v["Quarter"+i]});let he=h.extraPeriods||h.ExtraPeriods||{},ae=v.extraPeriods||v.ExtraPeriods||{},keys=[...new Set([...Object.keys(he),...Object.keys(ae)])].sort();keys.forEach((k,i)=>out.push({label:"OT"+(i+1),h:he[k],a:ae[k]}));for(let i=1;!keys.length&&(h["Extra"+i]!==undefined||v["Extra"+i]!==undefined);i++)out.push({label:"OT"+i,h:h["Extra"+i],a:v["Extra"+i]});return out}
+function getPeriods(box,g){
+ const home=g.local?.partials||g.home?.partials||{};
+ const away=g.road?.partials||g.away?.partials||{};
+ const out=[];
+ for(let i=1;i<=4;i++){
+  let hk="partials"+i;
+  if(home[hk]!==undefined||away[hk]!==undefined)
+   out.push({label:"Q"+i,h:home[hk],a:away[hk]});
+ }
+ const eh=home.extraPeriods||{},ea=away.extraPeriods||{};
+ const keys=[...new Set([...Object.keys(eh),...Object.keys(ea)])].sort();
+ keys.forEach((k,i)=>out.push({label:"OT"+(i+1),h:eh[k],a:ea[k]}));
+ return out;
+}
 function state(g){let s=String(g.gameStatus||g.status||"").toUpperCase();if(g.played===true||/FINAL|FINISHED|ENDED|COMPLETED/.test(s))return"PLAYED";if(/LIVE|IN.?PLAY|PLAYING|STARTED|QUARTER|HALF.?TIME/.test(s)||(g.played===false&&(Number(g.local?.score||0)+Number(g.road?.score||0)>0)))return"LIVE";return"UPCOMING"}
 function matchToast(m){let k=m.comp.fileName+"|"+code(m.g);if(previousFinals.has(k))return;previousFinals.add(k);let box=$("toastArea"),d=document.createElement("div");d.className="toast";d.innerHTML="<b>FINISHED</b><div>"+esc(teamName(m.g,true))+" vs "+esc(teamName(m.g,false))+"</div><div class='score'>"+esc(m.g.local?.score??"—")+" – "+esc(m.g.road?.score??"—")+"</div>";box.prepend(d);setTimeout(()=>d.remove(),12000)}
-async function loadOne(comp,start,end){let file=comp.fileName;if(!file)throw Error("Missing file name");let res=await fetch(rawURL(file),{cache:"no-store"});if(!res.ok)throw Error("GitHub file HTTP "+res.status);let source=await res.text(),cfg=parseConfig(source,comp);let fx=await json(cfg.worker+cfg.gamesPath+(cfg.gamesPath.includes("?")?"&":"?")+"season="+encodeURIComponent(cfg.season));let games=getGames(fx).filter(g=>{let d=gd(g);return d&&d>=start&&d<=end});let idx=0,errs=0,loaded=[];
- async function worker(){while(idx<games.length){let g=games[idx++],box=null;try{let u=cfg.worker+cfg.boxPath+"?gamecode="+encodeURIComponent(code(g))+"&season="+encodeURIComponent(cfg.season);let b=await json(u);box=b.boxscore||b.data||b;if(!(box.ByQuarter||box.EndOfQuarter))box=b}catch(e){errs++}let m={comp,g,box,cfg};loaded.push(m);}}
- await Promise.all(Array.from({length:Math.min(5,games.length)},worker));return {loaded,errors:errs};
+async function loadOne(comp,start,end){
+ let file=comp.fileName;
+ if(!file)throw Error("Missing file name");
+ let res=await fetch(rawURL(file),{cache:"no-store"});
+ if(!res.ok)throw Error("GitHub file HTTP "+res.status+" for "+file);
+ let source=await res.text(),cfg=parseConfig(source,comp);
+ let fx=await json(cfg.worker+cfg.gamesPath+(cfg.gamesPath.includes("?")?"&":"?")+"season="+encodeURIComponent(cfg.season));
+ let games=getGames(fx);
+ if(!games.length)throw Error("Fixtures response has no games array");
+ // Keep the date filtering local to the Index, but compare the API's localDate first.
+ let loaded=games.filter(g=>{
+   let d=dateISO(g.localDate||g.date||g.gameDate||g.dateTime);
+   return d&&d>=start&&d<=end;
+ }).map(g=>({comp,g,box:null,cfg}));
+ return {loaded,errors:0,total:games.length};
 }
-async function refreshAll(){if(busy)return;let start=$("startDate").value,end=$("endDate").value;if(!start||!end||end<start){alert("Select a valid date range.");return}busy=true;$("refresh").disabled=true;$("updated").textContent="Reading league files and loading scores…";let all=[],errors=[];
- for(const c of competitions){try{let r=await loadOne(c,start,end);all.push(...r.loaded);if(r.errors)errors.push(c.competition+": "+r.errors+" boxscore errors")}catch(e){errors.push(c.competition+": "+e.message)}}
- matchRows=all;for(let m of matchRows)if(state(m.g)==="PLAYED")matchToast(m);render();$("updated").textContent="Updated "+new Date().toLocaleTimeString()+" · "+matchRows.length+" matches"+(errors.length?" · "+errors.join(" | "):"");$("refresh").disabled=false;busy=false}
+async function refreshAll(){
+ if(busy)return;
+ let start=$("startDate").value,end=$("endDate").value;
+ if(!start||!end||end<start){alert("Select a valid date range.");return}
+ busy=true;$("refresh").disabled=true;
+ $("updated").textContent="Reading GitHub league files and loading fixtures…";
+ let all=[],errors=[],totals=[];
+ try{
+  for(const c of competitions){
+   try{
+    let r=await loadOne(c,start,end);
+    all.push(...r.loaded);
+    totals.push(c.competition+": "+r.loaded.length+"/"+r.total);
+   }catch(e){errors.push(c.competition+": "+e.message)}
+  }
+  matchRows=all;
+  for(let m of matchRows)if(state(m.g)==="PLAYED")matchToast(m);
+  render();
+  $("updated").textContent="Updated "+new Date().toLocaleTimeString()+" · "+matchRows.length+" matches"+(totals.length?" · "+totals.join(" | "):"")+(errors.length?" · ERRORS: "+errors.join(" | "):"");
+ }catch(e){
+  $("updated").textContent="Refresh failed: "+e.message;
+  $("results").innerHTML="<div class='err'>"+esc(e.message)+"</div>";
+ }finally{$("refresh").disabled=false;busy=false}
+}
 function setTab(t){tab=t;document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active",b.dataset.tab===t));render()}
 function toggleLeague(id){let e=document.getElementById(id);e.classList.toggle("collapsed");e.querySelector(".league-head button").textContent=e.classList.contains("collapsed")?"▾":"▴"}
 function render(){let start=$("startDate").value,end=$("endDate").value,q=$("search").value.toLowerCase(),valid=matchRows.filter(m=>{let d=gd(m.g),s=state(m.g);return d>=start&&d<=end&&(tab==="ALL"||tab===s)&&(!q||(m.comp.competition+" "+teamName(m.g,true)+" "+teamName(m.g,false)).toLowerCase().includes(q))});$("allCount").textContent=matchRows.length;$("liveCount").textContent=matchRows.filter(m=>state(m.g)==="LIVE").length;$("playedCount").textContent=matchRows.filter(m=>state(m.g)==="PLAYED").length;$("upcomingCount").textContent=matchRows.filter(m=>state(m.g)==="UPCOMING").length;
@@ -100,6 +146,6 @@ function render(){let start=$("startDate").value,end=$("endDate").value,q=$("sea
  rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ftH=m.g.local?.score??m.g.home?.score??"—",ftA=m.g.road?.score??m.g.away?.score??"—";let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(m.g.gameStatus||"Live"):"Scheduled";let cell=h=>[0,1,2,3,4,5].map(i=>"<span class='period'>"+(ps[i]?(h?ps[i].h:ps[i].a)??"":"")+"</span>").join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
  out+="</div></section>"});$("results").innerHTML=out||"<div class='empty'>No matches found. Check the date range, registered file names and league Worker configuration.</div>"}
 function toggleAuto(){autoOn=!autoOn;$("auto").textContent="Auto-refresh: "+(autoOn?"ON":"OFF");restartAuto()}function restartAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;if(autoOn)autoTimer=setInterval(refreshAll,Number($("interval").value)*1000)}
-function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}let today=new Date();$("startDate").value=dateInput(today);$("endDate").value=dateInput(today);
+function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}$("startDate").value="2026-07-01";$("endDate").value="2027-06-30";
 if(["admin","normal"].includes(sessionStorage.getItem("osed_role"))){role=sessionStorage.getItem("osed_role");showApp()}
 </script></body></html>

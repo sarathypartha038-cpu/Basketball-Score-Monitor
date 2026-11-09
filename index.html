@@ -84,28 +84,29 @@ function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 async function json(url){let r=await fetch(url,{cache:"no-store",headers:{Accept:"application/json"}}),t=await r.text(),j;try{j=JSON.parse(t)}catch{throw Error("Non-JSON response "+r.status+": "+t.slice(0,150))}if(!r.ok||j?.success===false||j?.ok===false)throw Error(j?.error||"HTTP "+r.status);return j}
 function getGames(d){if(Array.isArray(d))return d;for(let k of ["data","games","Games","matches","fixtures","results","items"])if(Array.isArray(d?.[k]))return d[k];return []}
 function dateISO(v){if(!v)return"";let s=String(v),m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+"-"+m[2]+"-"+m[3];let d=new Date(v);return isNaN(d)?"":d.toISOString().slice(0,10)}
-function gd(g){return dateISO(g.date||g.gameDate||g.localDate||g.dateTime)}
+function officialDetail(g){return g.officialMatch||g._officialMatch||g.matchData||null}
+function gd(g){return dateISO(g.localDate||g.date||g.gameDate||g.dateTime||g.fixtureDate||g.matchDate||g.gameDateTime||g.scheduledDate||g.startDateTime)}
 function teamObj(g,h){return h?(g.local||g.home||{}):(g.road||g.away||{})}
-function teamName(g,h){let t=teamObj(g,h);return typeof t==="string"?t:(t.club?.name||t.name||t.club?.abbreviatedName||"TBD")}
+function teamName(g,h){let m=officialDetail(g);let official=h?m?.teamA:m?.teamB;if(official)return String(official);let t=teamObj(g,h);return typeof t==="string"?t:(t.club?.name||t.name||t.club?.abbreviatedName||"TBD")}
 function code(g){return String(g.gameCode??g.gamecode??g.code??g.id??g.gameId??"")}
 function nrm(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"")}
 function rowFor(rows,g,h){let name=nrm(teamName(g,h));return rows.find(r=>nrm(r.Team)===name)||rows.find(r=>nrm(r.Team).includes(name)||name.includes(nrm(r.Team)))||rows[h?0:1]||{}}
 function getPeriods(box,g){
- const home=g.local?.partials||g.home?.partials||{};
- const away=g.road?.partials||g.away?.partials||{};
- const out=[];
- for(let i=1;i<=4;i++){
-  let hk="partials"+i;
-  if(home[hk]!==undefined||away[hk]!==undefined)
-   out.push({label:"Q"+i,h:home[hk],a:away[hk]});
+ const m=officialDetail(g);
+ if(m){
+  const out=[],q=m.quarters||{};
+  for(let i=1;i<=4;i++){const v=q["Q"+i];if(v)out.push({label:"Q"+i,h:v.teamA??null,a:v.teamB??null})}
+  (Array.isArray(m.overtime)?m.overtime:[]).forEach((v,i)=>out.push({label:"OT"+(i+1),h:v.teamA??v.teamAScore??null,a:v.teamB??v.teamBScore??null}));
+  if(out.length)return out;
  }
- const eh=home.extraPeriods||{},ea=away.extraPeriods||{};
- const keys=[...new Set([...Object.keys(eh),...Object.keys(ea)])].sort();
- keys.forEach((k,i)=>out.push({label:"OT"+(i+1),h:eh[k],a:ea[k]}));
- return out;
+ const home=g.local?.partials||g.home?.partials||{},away=g.road?.partials||g.away?.partials||{},out=[];
+ for(let i=1;i<=4;i++){let hk="partials"+i;if(home[hk]!==undefined||away[hk]!==undefined)out.push({label:"Q"+i,h:home[hk],a:away[hk]})}
+ const eh=home.extraPeriods||{},ea=away.extraPeriods||{},keys=[...new Set([...Object.keys(eh),...Object.keys(ea)])].sort();
+ keys.forEach((k,i)=>out.push({label:"OT"+(i+1),h:eh[k],a:ea[k]}));return out;
 }
-function state(g){let s=String(g.gameStatus||g.status||"").toUpperCase();if(g.played===true||/FINAL|FINISHED|ENDED|COMPLETED/.test(s))return"PLAYED";if(/LIVE|IN.?PLAY|PLAYING|STARTED|QUARTER|HALF.?TIME/.test(s)||(g.played===false&&(Number(g.local?.score||0)+Number(g.road?.score||0)>0)))return"LIVE";return"UPCOMING"}
-function matchToast(m){let k=m.comp.fileName+"|"+code(m.g);if(previousFinals.has(k))return;previousFinals.add(k);let box=$("toastArea"),d=document.createElement("div");d.className="toast";d.innerHTML="<b>FINISHED</b><div>"+esc(teamName(m.g,true))+" vs "+esc(teamName(m.g,false))+"</div><div class='score'>"+esc(m.g.local?.score??"—")+" – "+esc(m.g.road?.score??"—")+"</div>";box.prepend(d);setTimeout(()=>d.remove(),12000)}
+function finalPair(g){const m=officialDetail(g);if(m?.FT)return [m.FT.teamA??null,m.FT.teamB??null];return [g.local?.score??g.home?.score??null,g.road?.score??g.away?.score??null]}
+function state(g){let m=officialDetail(g),s=String(m?.gameStatus||m?.matchStatus||m?.status||g.gameStatus||g.status||"").toUpperCase();if(g.played===true||/FINAL|FINISHED|ENDED|COMPLETED|FULL.?TIME|^FT$/.test(s))return"PLAYED";let ps=getPeriods(null,g),ft=finalPair(g),complete=ps.filter(p=>/^Q[1-4]$/.test(p.label)&&p.h!==null&&p.h!==undefined&&p.a!==null&&p.a!==undefined).length;if(complete===4&&ft[0]!==null&&ft[1]!==null)return"PLAYED";if(/LIVE|IN.?PLAY|PLAYING|STARTED|QUARTER|HALF.?TIME/.test(s)||(Number(ft[0]||0)+Number(ft[1]||0)>0&&g.played===false))return"LIVE";return"UPCOMING"}
+function matchToast(m){let k=m.comp.fileName+"|"+code(m.g);if(previousFinals.has(k))return;previousFinals.add(k);let ft=finalPair(m.g),box=$("toastArea"),d=document.createElement("div");d.className="toast";d.innerHTML="<b>FINISHED</b><div>"+esc(teamName(m.g,true))+" vs "+esc(teamName(m.g,false))+"</div><div class='score'>"+esc(ft[0]??"—")+" – "+esc(ft[1]??"—")+"</div>";box.prepend(d);setTimeout(()=>d.remove(),12000)}
 async function loadOne(comp,start,end){
  let file=comp.fileName;
  if(!file)throw Error("Missing file name");
@@ -157,7 +158,7 @@ function setTab(t){tab=t;document.querySelectorAll(".tab").forEach(b=>b.classLis
 function toggleLeague(id){let e=document.getElementById(id);e.classList.toggle("collapsed");e.querySelector(".league-head button").textContent=e.classList.contains("collapsed")?"▾":"▴"}
 function render(){let start=$("startDate").value,end=$("endDate").value,q=$("search").value.toLowerCase(),dateRows=matchRows.filter(m=>{let d=gd(m.g);return d&&d>=start&&d<=end}),valid=dateRows.filter(m=>{let s=state(m.g);return (tab==="ALL"||tab===s)&&(!q||(m.comp.competition+" "+teamName(m.g,true)+" "+teamName(m.g,false)).toLowerCase().includes(q))});$("allCount").textContent=dateRows.length;$("liveCount").textContent=dateRows.filter(m=>state(m.g)==="LIVE").length;$("playedCount").textContent=dateRows.filter(m=>state(m.g)==="PLAYED").length;$("upcomingCount").textContent=dateRows.filter(m=>state(m.g)==="UPCOMING").length;
  let out="";competitions.forEach((c,i)=>{let rows=valid.filter(m=>m.comp.fileName===c.fileName);if(!rows.length)return;let id="lg"+i;out+="<section class='league' id='"+id+"'><div class='league-head'><span>"+esc(c.sport)+"</span><span>·</span><span>"+esc(c.country)+": "+esc(c.competition)+"</span><span class='muted'>"+rows.length+" matches</span><button onclick='toggleLeague(\""+id+"\")'>▴</button></div><div class='league-body'><div class='score-head'><span>Status</span><span>Team</span><span>FT</span><span>Q1</span><span>Q2</span><span>Q3</span><span>Q4</span><span>OT</span></div>";
- rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ftH=m.g.local?.score??m.g.home?.score??"—",ftA=m.g.road?.score??m.g.away?.score??"—";let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(m.g.gameStatus||"Live"):"Scheduled";let cell=h=>[0,1,2,3,4,5].map(i=>"<span class='period'>"+(ps[i]?(h?ps[i].h:ps[i].a)??"":"")+"</span>").join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
+ rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ft=finalPair(m.g),ftH=ft[0]??"—",ftA=ft[1]??"—";let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(m.g.gameStatus||"Live"):"Scheduled";let cell=h=>[0,1,2,3,4,5].map(i=>"<span class='period'>"+(ps[i]?(h?ps[i].h:ps[i].a)??"":"")+"</span>").join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
  out+="</div></section>"});$("results").innerHTML=out||"<div class='empty'>No matches found. Check the date range, registered file names and league Worker configuration.</div>"}
 function toggleAuto(){autoOn=true;$("auto").textContent="Auto-refresh: ON";restartAuto()}function restartAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;autoOn=true;$("auto").textContent="Auto-refresh: ON";autoTimer=setInterval(refreshAll,Number($("interval").value)*1000)}
 function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}

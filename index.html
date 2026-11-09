@@ -51,9 +51,13 @@ function pagesURL(file){return "https://"+GH.owner+".github.io/"+GH.repo+"/"+fil
 function parseConfig(source,comp){
  const worker=(source.match(/(?:const|let|var)\s+WORKER_URL\s*=\s*['"]([^'"]+)['"]/i)||[])[1];
  const season=(source.match(/(?:const|let|var)\s+SEASON_CODE\s*=\s*['"]([^'"]+)['"]/i)||[])[1];
- const gamesPath=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/games[^'"]*)['"]/i)||[])[1];
- const boxPath=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/boxscore[^'"]*)['"]/i)||[])[1];
- if(!worker||!season||!gamesPath||!boxPath)throw Error("Could not detect WORKER_URL, SEASON_CODE, games route and boxscore route in "+comp.fileName);
+ const gamesRaw=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/games[^'"]*)['"]/i)||[])[1];
+ const boxRaw=(source.match(/WORKER_URL\s*\+\s*['"]([^'"]*\/api\/[^'"]*\/boxscore[^'"]*)['"]/i)||[])[1];
+ if(!worker||!season||!gamesRaw||!boxRaw)throw Error("Could not detect WORKER_URL, SEASON_CODE, games route and boxscore route in "+comp.fileName);
+ // Strip query fragments from the league HTML route literals. The Index adds
+ // the correct season/gameCode parameters itself.
+ const gamesPath=gamesRaw.split("?")[0].replace(/\/$/,"");
+ const boxPath=boxRaw.split("?")[0].replace(/\/$/,"");
  const league=(gamesPath.match(/\/api\/([^/]+)\/games/i)||[])[1];
  return {worker:worker.replace(/\/$/,""),season,gamesPath,boxPath,league};
 }

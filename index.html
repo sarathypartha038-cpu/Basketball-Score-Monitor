@@ -105,7 +105,26 @@ function getPeriods(box,g){
  keys.forEach((k,i)=>out.push({label:"OT"+(i+1),h:eh[k],a:ea[k]}));return out;
 }
 function finalPair(g){const m=officialDetail(g);if(m?.FT)return [m.FT.teamA??null,m.FT.teamB??null];return [g.local?.score??g.home?.score??null,g.road?.score??g.away?.score??null]}
-function state(g){let m=officialDetail(g),s=String(m?.gameStatus||m?.matchStatus||m?.status||g.gameStatus||g.status||"").toUpperCase();if(g.played===true||/FINAL|FINISHED|ENDED|COMPLETED|FULL.?TIME|^FT$/.test(s))return"PLAYED";let ps=getPeriods(null,g),ft=finalPair(g),complete=ps.filter(p=>/^Q[1-4]$/.test(p.label)&&p.h!==null&&p.h!==undefined&&p.a!==null&&p.a!==undefined).length;if(complete===4&&ft[0]!==null&&ft[1]!==null)return"PLAYED";if(/LIVE|IN.?PLAY|PLAYING|STARTED|QUARTER|HALF.?TIME/.test(s)||(Number(ft[0]||0)+Number(ft[1]||0)>0&&g.played===false))return"LIVE";return"UPCOMING"}
+function state(g){
+ let m=officialDetail(g);
+ let s=String(m?.gameStatus||m?.matchStatus||m?.status||g.gameStatus||g.status||"").toUpperCase();
+ // Explicit final status is the strongest evidence that a game has ended.
+ if(/FINAL|FINISHED|ENDED|COMPLETED|FULL.?TIME|^FT$/.test(s))return"PLAYED";
+ let ps=getPeriods(null,g),ft=finalPair(g);
+ const validNum=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v));
+ const scoreTotal=(validNum(ft[0])?Number(ft[0]):0)+(validNum(ft[1])?Number(ft[1]):0);
+ const quarterValues=ps.filter(p=>/^Q[1-4]$/.test(p.label));
+ const quarterTotal=quarterValues.reduce((sum,p)=>sum+(validNum(p.h)?Number(p.h):0)+(validNum(p.a)?Number(p.a):0),0);
+ const completeQuarters=quarterValues.filter(p=>validNum(p.h)&&validNum(p.a)).length;
+ const hasRealScore=scoreTotal>0||quarterTotal>0;
+ // Do not trust the generic `played` flag on its own: some fixture feeds
+ // set it before scores are populated and return placeholder 0-0 values.
+ if(g.played===true&&hasRealScore)return"PLAYED";
+ if(completeQuarters===4&&validNum(ft[0])&&validNum(ft[1])&&hasRealScore)return"PLAYED";
+ if(/LIVE|IN.?PLAY|PLAYING|STARTED|QUARTER|HALF.?TIME/.test(s))return"LIVE";
+ if(hasRealScore&&g.played!==true)return"LIVE";
+ return"UPCOMING";
+}
 function matchToast(m){let k=m.comp.fileName+"|"+code(m.g);if(previousFinals.has(k))return;previousFinals.add(k);let ft=finalPair(m.g),box=$("toastArea"),d=document.createElement("div");d.className="toast";d.innerHTML="<b>FINISHED</b><div>"+esc(teamName(m.g,true))+" vs "+esc(teamName(m.g,false))+"</div><div class='score'>"+esc(ft[0]??"—")+" – "+esc(ft[1]??"—")+"</div>";box.prepend(d);setTimeout(()=>d.remove(),12000)}
 async function loadOne(comp,start,end){
  let file=comp.fileName;
@@ -178,7 +197,7 @@ function setTab(t){tab=t;document.querySelectorAll(".tab").forEach(b=>b.classLis
 function toggleLeague(id){let e=document.getElementById(id);e.classList.toggle("collapsed");e.querySelector(".league-head button").textContent=e.classList.contains("collapsed")?"▾":"▴"}
 function render(){let start=$("startDate").value,end=$("endDate").value,q=$("search").value.toLowerCase(),dateRows=matchRows.filter(m=>{let d=gd(m.g);return d&&d>=start&&d<=end}),valid=dateRows.filter(m=>{let s=state(m.g);return (tab==="ALL"||tab===s)&&(!q||(m.comp.competition+" "+teamName(m.g,true)+" "+teamName(m.g,false)).toLowerCase().includes(q))});$("allCount").textContent=dateRows.length;$("liveCount").textContent=dateRows.filter(m=>state(m.g)==="LIVE").length;$("playedCount").textContent=dateRows.filter(m=>state(m.g)==="PLAYED").length;$("upcomingCount").textContent=dateRows.filter(m=>state(m.g)==="UPCOMING").length;
  let out="";competitions.forEach((c,i)=>{let rows=valid.filter(m=>m.comp.fileName===c.fileName);if(!rows.length)return;let id="lg"+i;out+="<section class='league' id='"+id+"'><div class='league-head'><span>"+esc(c.sport)+"</span><span>·</span><span>"+esc(c.country)+": "+esc(c.competition)+"</span><span class='muted'>"+rows.length+" matches</span><button onclick='toggleLeague(\""+id+"\")'>▴</button></div><div class='league-body'><div class='score-head'><span>Status</span><span>Team</span><span>FT</span><span>Q1</span><span>Q2</span><span>Q3</span><span>Q4</span><span>OT</span></div>";
- rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ft=finalPair(m.g),ftH=ft[0]??"—",ftA=ft[1]??"—";let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(m.g.gameStatus||"Live"):"Scheduled";let cell=h=>[0,1,2,3,4,5].map(i=>"<span class='period'>"+(ps[i]?(h?ps[i].h:ps[i].a)??"":"")+"</span>").join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
+ rows.forEach(m=>{let ps=getPeriods(m.box,m.g),st=state(m.g),ft=finalPair(m.g),ftH=ft[0]??"—",ftA=ft[1]??"—";if(st==="UPCOMING"&&Number(ftH)===0&&Number(ftA)===0){ftH="—";ftA="—";}let stateTxt=st==="PLAYED"?"Full Time":st==="LIVE"?(m.g.gameStatus||"Live"):"Scheduled";let cell=h=>[0,1,2,3,4,5].map(i=>{let v=ps[i]?(h?ps[i].h:ps[i].a):"";if(st==="UPCOMING"&&Number(v)===0)v="—";return "<span class='period'>"+(v??"")+"</span>"}).join("");out+="<div class='match'><div class='state'>"+esc(stateTxt)+"</div><div class='team'><span class='team-name'>"+esc(teamName(m.g,true))+"</span></div><div class='total'>"+esc(ftH)+"</div>"+cell(true)+"<div class='team'><span class='team-name'>"+esc(teamName(m.g,false))+"</span></div><div class='total'>"+esc(ftA)+"</div>"+cell(false)+"</div>"});
  out+="</div></section>"});$("results").innerHTML=out||"<div class='empty'>No matches found. Check the date range, registered file names and league Worker configuration.</div>"}
 function toggleAuto(){autoOn=true;$("auto").textContent="Auto-refresh: ON";restartAuto()}function restartAuto(){if(autoTimer)clearInterval(autoTimer);autoTimer=null;autoOn=true;$("auto").textContent="Auto-refresh: ON";autoTimer=setInterval(refreshAll,Number($("interval").value)*1000)}
 function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")}

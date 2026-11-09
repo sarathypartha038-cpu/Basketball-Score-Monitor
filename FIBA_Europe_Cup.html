@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FIBA Europe Cup Official Score Viewer</title>
+<style>
+:root{color-scheme:dark;--bg:#0a1221;--panel:#142139;--line:#2b3c5a;--txt:#eff5ff;--muted:#9fb1ce;--green:#123f35;--greenb:#36d399;--red:#4b202c;--redb:#fb7185;--amber:#4b3917}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 Segoe UI,Arial,sans-serif}
+header{padding:22px max(18px,calc((100vw - 1350px)/2));background:#111c30;border-bottom:1px solid var(--line)}
+h1{margin:0;font-size:24px}header p{margin:4px 0 0;color:var(--muted)}
+main{max-width:1350px;margin:20px auto;padding:0 16px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px;margin-bottom:15px}
+.toolbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+button,input,select{border-radius:8px;padding:10px;border:1px solid #405170;background:#0b172b;color:var(--txt)}
+button{background:#3169c8;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.6;cursor:wait}.secondary{background:#263752;border:1px solid #405170}
+.spacer{flex:1}.muted,.hint{color:var(--muted)}.hint{font-size:12px}.field{display:flex;flex-direction:column;gap:4px}.field label{font-size:12px;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px}.metric b{display:block;font-size:22px}.metric span{color:var(--muted)}
+h2{font-size:16px;margin:0 0 12px}
+.match-card{border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden}
+.match-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 14px;background:#182743}
+.team-title{font-weight:750}.official-source{padding:14px}.source-title{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800;margin-bottom:10px}
+.ft{font-size:28px;font-weight:800;letter-spacing:.04em;padding:8px 10px;border-radius:9px;background:#0b172b;display:inline-block;min-width:130px;text-align:center}
+.quarter-grid{display:grid;grid-template-columns:repeat(6,minmax(70px,1fr));gap:7px;margin-top:12px}
+.qbox{background:#0d192d;border:1px solid var(--line);border-radius:8px;padding:8px;text-align:center}.qbox b{display:block;font-size:15px}.qbox small{color:var(--muted);font-size:10px}
+.status{font-size:11px;font-weight:800;padding:5px 9px;border-radius:20px;background:var(--amber);color:#ffdb70}
+.status.good{background:var(--green);color:#8df0c8}.status.live{background:#153b55;color:#8bd5ff}.status.upcoming{background:#3c321c;color:#ffdb70}
+.source-status{display:inline-flex;align-items:center;gap:5px;margin:-2px 0 10px;padding:5px 9px;border-radius:18px;font-size:11px;font-weight:800;background:#3c321c;color:#ffdb70}
+.source-status.live{background:#153b55;color:#8bd5ff}.source-status.good{background:var(--green);color:#8df0c8}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+@media(max-width:700px){.cards{grid-template-columns:repeat(2,1fr)}.quarter-grid{grid-template-columns:repeat(3,1fr)}h1{font-size:20px}.match-head{align-items:flex-start}}
+
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+.tab-btn{background:#0b172b;border:1px solid var(--line);color:var(--muted);padding:8px 13px}
+.tab-btn.active{background:#263752;border-color:#5b78a6;color:var(--txt)}
+.tab-count{display:inline-block;margin-left:7px;padding:1px 7px;border-radius:12px;background:#182743;color:var(--txt);font-size:11px}
+.score-card{border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden;background:#142139}
+.score-meta{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:7px 12px;background:#182743}
+.score-meta-left{display:flex;gap:14px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.score-meta-left b{color:var(--txt)}
+.scoreboard{padding:7px 12px}
+.score-line{display:grid;grid-template-columns:minmax(170px,1fr) 52px repeat(6,minmax(36px,54px));gap:7px;align-items:center;min-height:29px}
+.score-team{font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.score-total{text-align:center;font-size:16px;font-weight:600;color:var(--txt)}
+.score-period{text-align:center;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.score-period.head{font-size:10px;text-transform:uppercase}
+.score-separator{height:1px;background:var(--line);margin:3px 0}
+.score-state{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header><h1>FIBA Europe Cup Official Score Viewer</h1><p>Selected-date official FIBA fixtures · quarter scores · overtime · full-time scores</p></header>
+<main>
+<section class="panel toolbar">
+ <div class="field"><label>Start date</label><input type="date" id="startDate"></div>
+ <div class="field"><label>End date</label><input type="date" id="endDate"></div>
+ <button id="refresh" onclick="refreshAll()">↻ Refresh now</button>
+ <button class="secondary" id="auto" onclick="toggleAuto()">Auto-refresh: OFF</button>
+ <div class="field"><label>Refresh interval</label><select id="interval" onchange="restartTimer()"><option value="30">30 sec</option><option value="60">60 sec</option><option value="120">2 min</option></select></div>
+ <span class="spacer"></span><span class="muted" id="updated">Not refreshed</span>
+</section>
+<section class="panel">
+ <div class="toolbar" style="align-items:center;margin-bottom:10px">
+  <h2 style="margin:0">Official match scores</h2><span class="spacer"></span>
+  <input id="search" placeholder="Search team..." oninput="render()">
+ </div>
+ <div class="tabs" id="matchTabs">
+   <button class="tab-btn active" data-tab="ALL" onclick="setTab('ALL')">All Matches <span class="tab-count" id="tabAllCount">0</span></button>
+   <button class="tab-btn" data-tab="LIVE" onclick="setTab('LIVE')">Live <span class="tab-count" id="tabLiveCount">0</span></button>
+   <button class="tab-btn" data-tab="PLAYED" onclick="setTab('PLAYED')">Played <span class="tab-count" id="tabPlayedCount">0</span></button>
+  </div>
+  <div id="results"><div class="empty">Choose a match date and click Refresh now.</div></div>
+ <p class="hint">Only fixtures within the selected Start Date and End Date are requested for match details and displayed. The Worker filters the fixture index and fetches official match details only for those selected fixtures. Quarter and overtime scores are displayed when returned by FIBA. Upcoming fixtures may have no period scores until FIBA publishes them.</p>
+</section>
+</main>
+<script>
+const WORKER_URL='https://fiba-europe-cup-official.sarathypartha038.workers.dev';
+const BATCH_SIZE=25;
+let allGames=[],timer=null,auto=false,refreshing=false,totalFixtures=0,failedCount=0,activeTab='ALL';
+
+const $=id=>document.getElementById(id);
+function dateInput(d){return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')}
+function dateOnly(v){return String(v||'').slice(0,10)}
+function get(obj,keys,fallback=''){for(const k of keys){if(obj&&obj[k]!==undefined&&obj[k]!==null)return obj[k]}return fallback}
+function teamName(g,side){
+ const keys=side==='home'?['teamA','homeTeam','localTeam','home','local']:['teamB','awayTeam','roadTeam','away','road'];
+ let v=get(g,keys,{});
+ if(typeof v==='string')return v;
+ return get(v,['name','teamName','displayName','shortName','clubName'],'');
+}
+function extractGames(data){
+ if(Array.isArray(data))return data;
+ for(const k of ['fixtures','games','matches','data','results','items'])if(Array.isArray(data?.[k]))return data[k];
+ if(Array.isArray(data?.data?.fixtures))return data.data.fixtures;
+ return [];
+}
+function getPeriods(g){
+ return get(g,['periods','periodScores','scoresByPeriod','quarterScores','periodsScores'],[]);
+}
+function periodLabel(p,index){
+ return String(get(p,['period','periodNumber','number','code','name','periodName'],index+1)).toUpperCase();
+}
+function periodPair(p){
+ if(Array.isArray(p))return [p[0]??null,p[1]??null];
+ const h=get(p,['homeScore','home','homePoints','localScore','localPoints','scoreHome'],null);
+ const a=get(p,['awayScore','away','awayPoints','roadScore','roadPoints','scoreAway'],null);
+ return [h,a];
+}
+function normalizePeriods(g){
+ const raw=getPeriods(g),out=[];
+ if(Array.isArray(raw)){
+  raw.forEach((p,i)=>{
+   const label=periodLabel(p,i);
+   const pair=periodPair(p);
+   if(label.includes('OT')||label.includes('OVERTIME')||Number(label)>4)out.push({label:label.startsWith('OT')?label:'OT'+(out.length+1),pair});
+   else out.push({label:/Q|QUARTER/.test(label)?label:'Q'+(i+1),pair});
+  });
+ }else if(raw&&typeof raw==='object'){
+  Object.entries(raw).forEach(([k,v])=>out.push({label:/OT/i.test(k)?k.toUpperCase():'Q'+(Number(String(k).replace(/\D/g,''))||out.length+1),pair:periodPair(v)}));
+ }
+ const home=get(g,['homePeriods','localPeriods'],null),away=get(g,['awayPeriods','roadPeriods'],null);
+ if(!out.length&&home&&away){
+  for(let i=0;i<Math.max(home.length||0,away.length||0);i++)out.push({label:i<4?'Q'+(i+1):'OT'+(i-3),pair:[home[i]??null,away[i]??null]});
+ }
+ return out;
+}
+function finalScore(g){
+ const h=get(g,['homeScore','homeTeamScore','scoreHome','localScore','localTeamScore'],null);
+ const a=get(g,['awayScore','awayTeamScore','scoreAway','roadScore','roadTeamScore'],null);
+ if(h!==null||a!==null)return [h,a];
+ const score=get(g,['score','finalScore','ft'],null);
+ if(Array.isArray(score))return score;
+ if(score&&typeof score==='object')return [get(score,['home','homeScore','local'],null),get(score,['away','awayScore','road'],null)];
+ return [null,null];
+}
+function scoreText(pair){
+ return pair&&pair[0]!==null&&pair[0]!==undefined&&pair[1]!==null&&pair[1]!==undefined?pair[0]+' - '+pair[1]:'—';
+}
+function dateToISO(value){
+ if(value===null||value===undefined||value==='')return '';
+ if(typeof value==='number'){
+   // Accept Unix seconds or milliseconds.
+   const ms=value<100000000000?value*1000:value;
+   const d=new Date(ms);
+   return isNaN(d)?'':dateInput(d);
+ }
+ if(typeof value==='object'){
+   // Handle common API date objects.
+   const nested=get(value,['date','dateTime','value','localDate','utcDate','startTime','timestamp'],'');
+   if(nested!==''&&nested!==value)return dateToISO(nested);
+   const y=get(value,['year','Year'],null),m=get(value,['month','Month'],null),d=get(value,['day','Day'],null);
+   if(y!==null&&m!==null&&d!==null)return String(y).padStart(4,'0')+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+   return '';
+ }
+ const s=String(value).trim();
+ if(!s)return '';
+ // ISO and other year-first date strings.
+ let m=s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+ if(m)return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+ // Explicit day/month/year or month/day/year strings.
+ m=s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+ if(m){
+   const a=Number(m[1]),b=Number(m[2]),y=m[3];
+   // Resolve unambiguous values; ambiguous values are treated as DD/MM/YYYY,
+   // which is the usual date convention for this FIBA operations workflow.
+   const day=a>12?a:(b>12?b:a);
+   const month=a>12?b:(b>12?a:b);
+   return y+'-'+String(month).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+ }
+ const parsed=new Date(s);
+ return isNaN(parsed)?'':dateInput(parsed);
+}
+function gameDate(g){
+ const direct=dateToISO(get(g,['fixtureDate','matchDate','MatchDate'],''));
+ if(direct)return direct;
+ const paths=[
+  'localDate','LocalDate','gameDate','GameDate','date','Date','scheduledDate','ScheduledDate',
+  'startDate','StartDate','utcDate','UtcDate','dateTime','DateTime','startTime','StartTime',
+  'gameDateTime','GameDateTime','scheduledStartTime','ScheduledStartTime','matchDate','MatchDate',
+  'dateUtc','DateUtc','gameDateUtc','GameDateUtc','startDateTime','StartDateTime',
+  'localDateTime','LocalDateTime','gameDateLocal','GameDateLocal','timestamp','Timestamp'
+ ];
+ for(const key of paths){
+   const v=g?.[key];
+   const result=dateToISO(v);
+   if(result)return result;
+ }
+ for(const parent of ['gameInfo','GameInfo','schedule','Schedule','fixture','Fixture','dateInfo','DateInfo']){
+   const obj=g?.[parent];
+   if(obj&&typeof obj==='object'){
+     const result=gameDate(obj);
+     if(result)return result;
+   }
+ }
+ return '';
+}
+
+function officialDetail(g){return g.officialMatch||g._officialMatch||g.matchData||null}
+function displayHome(g){const m=officialDetail(g);return get(m,['teamA'],teamName(g,'home'))||teamName(g,'home')||'TBD'}
+function displayAway(g){const m=officialDetail(g);return get(m,['teamB'],teamName(g,'away'))||teamName(g,'away')||'TBD'}
+function officialPeriods(g){
+ const m=officialDetail(g);
+ if(!m)return normalizePeriods(g);
+ const out=[];
+ const q=m.quarters||{};
+ for(let n=1;n<=4;n++){
+  const v=q['Q'+n];
+  if(v)out.push({label:'Q'+n,pair:[v.teamA??null,v.teamB??null]});
+ }
+ const ot=Array.isArray(m.overtime)?m.overtime:[];
+ ot.forEach((v,i)=>out.push({label:'OT'+(i+1),pair:[v.teamA??v.teamAScore??null,v.teamB??v.teamBScore??null]}));
+ // If overtime is represented in periods rather than overtime[], include it.
+ if(!ot.length&&Array.isArray(m.periods)){
+  m.periods.filter(v=>/OT|OVERTIME/i.test(String(v.name||''))).forEach((v,i)=>
+   out.push({label:v.name||'OT'+(i+1),pair:[v.teamAScore??null,v.teamBScore??null]}));
+ }
+ return out.length?out:normalizePeriods(g);
+}
+function officialFinalScore(g){
+ const m=officialDetail(g);
+ if(m&&m.FT)return [m.FT.teamA??null,m.FT.teamB??null];
+ return finalScore(g);
+}
+
+function scheduledStart(g){
+ // Prefer FIBA's UTC timestamp so browser timezone cannot shift the match date.
+ const v=get(g,['gameDateTimeUTC','GameDateTimeUTC','scheduledDateTimeUTC','startDateTimeUTC'],null);
+ if(v){
+  const d=new Date(v);
+  if(!isNaN(d))return d;
+ }
+ const local=get(g,['gameDateTime','GameDateTime','scheduledStartTime','startDateTime'],null);
+ if(local){
+  const d=new Date(local);
+  if(!isNaN(d))return d;
+ }
+ return null;
+}
+function gameStatus(g){
+ const m=officialDetail(g);
+ const sources=[m,g].filter(Boolean);
+ const statusKeys=['gameStatus','matchStatus','status','state','phase','statusCode','gameStatusCode','matchStatusCode'];
+ const rawStatuses=sources.map(x=>String(get(x,statusKeys,'')).toUpperCase());
+ // Explicit terminal states always mean the match has ended.
+ if(rawStatuses.some(s=>/FINISHED|FINAL|COMPLETED|ENDED|CLOSED|FULL.?TIME|^FT$/.test(s)))
+  return {label:'FINISHED',cls:'good'};
+ // An explicit live flag takes priority over score data.
+ if(sources.some(x=>x.isLive===true||x.live===true||x.inProgress===true)){
+  const period=get(m||g,['currentPeriod','periodName','period'],null);
+  return {label:'LIVE'+(period?' · '+period:''),cls:'live'};
+ }
+ // FIBA's VALID status is a generic validity code, not an upcoming status.
+ // Four populated quarter scores plus a populated FT score confirm completion.
+ const periods=officialPeriods(g);
+ const completeQuarters=periods.filter(p=>/^Q[1-4]$/.test(p.label)&&
+  p.pair&&p.pair[0]!==null&&p.pair[0]!==undefined&&p.pair[1]!==null&&p.pair[1]!==undefined).length;
+ const ft=officialFinalScore(g);
+ const hasFinalScore=ft[0]!==null&&ft[0]!==undefined&&ft[1]!==null&&ft[1]!==undefined;
+ if(completeQuarters===4&&hasFinalScore)
+  return {label:'FINISHED',cls:'good'};
+ // Do not let the generic VALID code override score-based completion.
+ if(rawStatuses.some(s=>/INIT|SCHEDULED|UPCOMING|CONFIRMED|NOT.?STARTED/.test(s)))
+  return {label:'UPCOMING',cls:'upcoming'};
+ const kickoff=scheduledStart(g);
+ if(kickoff&&kickoff.getTime()>Date.now())return {label:'UPCOMING',cls:'upcoming'};
+ return {label:'UPCOMING',cls:'upcoming'};
+}
+function fixtureId(g){return get(g,['gameId','gdapGameId','id','matchId'],get(g.match||{},['gameId','gdapGameId','id'],''))}
+function competitionName(g){return get(g,['competitionName','competition','competitionDisplayName'],'FIBA Europe Cup')}
+function roundName(g){return get(g,['phaseName','roundName','round','stageName','groupName'],'')}
+function setTab(tab){
+ activeTab=tab;
+ document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+ render();
+}
+function render(){
+ const start=$('startDate').value,end=$('endDate').value,q=$('search').value.toLowerCase();
+ const dateRows=allGames.filter(g=>{const d=gameDate(g);return d&&d>=start&&d<=end;});
+ const liveRows=dateRows.filter(g=>gameStatus(g).cls==='live');
+ const playedRows=dateRows.filter(g=>gameStatus(g).cls==='good');
+ $('tabAllCount').textContent=dateRows.length;
+ $('tabLiveCount').textContent=liveRows.length;
+ $('tabPlayedCount').textContent=playedRows.length;
+ const tabRows=activeTab==='LIVE'?liveRows:activeTab==='PLAYED'?playedRows:dateRows;
+ const rows=tabRows.filter(g=>(displayHome(g)+' '+displayAway(g)+' '+teamName(g,'home')+' '+teamName(g,'away')).toLowerCase().includes(q));
+ $('results').innerHTML=rows.length?rows.map(g=>{
+  const home=displayHome(g),away=displayAway(g),status=gameStatus(g),periods=officialPeriods(g),ft=officialFinalScore(g);
+  const id=fixtureId(g),date=gameDate(g),maxPeriods=Math.min(6,Math.max(4,periods.length));
+  const periodHeaders=Array.from({length:maxPeriods},(_,i)=>`<div class="score-period head">${escapeHtml(periods[i]?.label||('Q'+(i+1)))}</div>`).join('');
+  const homePeriods=Array.from({length:maxPeriods},(_,i)=>`<div class="score-period">${periods[i]?.pair?.[0]??'—'}</div>`).join('');
+  const awayPeriods=Array.from({length:maxPeriods},(_,i)=>`<div class="score-period">${periods[i]?.pair?.[1]??'—'}</div>`).join('');
+  return `<article class="score-card">
+   <div class="score-meta"><div class="score-meta-left"><b>${escapeHtml(date)}</b><span>Game ID: ${escapeHtml(id||'—')}</span></div><span class="status ${status.cls}">${escapeHtml(status.label)}</span></div>
+   <div class="scoreboard">
+    <div class="score-state">${status.cls==='live'?'LIVE SCORE':status.cls==='good'?'FINAL SCORE':'SCHEDULED'}</div>
+    <div class="score-line" style="grid-template-columns:minmax(170px,1fr) 52px repeat(${maxPeriods},minmax(36px,54px))"><div></div><div class="score-period head">PTS</div>${periodHeaders}</div>
+    <div class="score-line" style="grid-template-columns:minmax(170px,1fr) 52px repeat(${maxPeriods},minmax(36px,54px))"><div class="score-team">${escapeHtml(home)}</div><div class="score-total">${ft[0]??'—'}</div>${homePeriods}</div>
+    <div class="score-separator"></div>
+    <div class="score-line" style="grid-template-columns:minmax(170px,1fr) 52px repeat(${maxPeriods},minmax(36px,54px))"><div class="score-team">${escapeHtml(away)}</div><div class="score-total">${ft[1]??'—'}</div>${awayPeriods}</div>
+   </div></article>`;
+ }).join(''):(allGames.length?`<div class="empty">No ${activeTab==='ALL'?'matches':activeTab.toLowerCase()+' matches'} found for the selected date range and search.</div>`:'<div class="empty">No official fixtures loaded yet.</div>');
+}
+function escapeHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+async function fetchJSON(url){
+ const r=await fetch(url,{cache:'no-store',headers:{Accept:'application/json'}});
+ const t=await r.text();let data;
+ try{data=JSON.parse(t)}catch(e){throw Error('Invalid JSON response: '+t.slice(0,250))}
+ if(!r.ok)throw Error('HTTP '+r.status+': '+JSON.stringify(data).slice(0,350));
+ if(data?.success===false)throw Error(data.error||'Worker returned success:false');
+ return data;
+}
+
+async function loadSelectedMatchDetails(){
+ const start=$('startDate').value,end=$('endDate').value;
+ const selected=allGames.filter(g=>{
+  const d=gameDate(g);
+  return d&&d>=start&&d<=end;
+ });
+ let index=0,done=0,errors=0;
+ async function worker(){
+  while(index<selected.length){
+   const g=selected[index++];
+   const id=fixtureId(g);
+   if(!id){g._detailError='Fixture has no gameId';errors++;done++;continue;}
+   try{
+    const data=await fetchJSON(WORKER_URL+'/api/match?gameId='+encodeURIComponent(id));
+    if(!data.match)throw Error('Response does not contain match object');
+    g._officialMatch=data.match;
+    g._detailError='';
+   }catch(e){
+    g._detailError=e.message;
+    errors++;
+   }
+   done++;
+   if(done%3===0||done===selected.length){
+    $('updated').textContent='Loading selected match details · '+done+'/'+selected.length;
+    render();
+   }
+  }
+ }
+ await Promise.all(Array.from({length:Math.min(5,selected.length)},()=>worker()));
+ render();
+ return {selected:selected.length,errors};
+}
+
+async function refreshAll(){
+ if(refreshing)return;
+ const startDate=$('startDate').value,endDate=$('endDate').value;
+ if(!startDate||!endDate){alert('Please select both start date and end date.');return}
+ if(endDate<startDate){alert('End date cannot be earlier than start date.');return}
+
+ refreshing=true;
+ $('refresh').disabled=true;
+ $('updated').textContent='Loading selected-date official fixtures…';
+
+ try{
+  // One request to the Worker. The Worker filters the fixture index
+  // and requests match details only for fixtures in this date range.
+  const url=WORKER_URL+'/api/fixtures?startDate='+
+    encodeURIComponent(startDate)+'&endDate='+
+    encodeURIComponent(endDate);
+
+  const data=await fetchJSON(url);
+
+  if(!data.success)throw Error(data.error||'Worker request failed');
+
+  allGames=Array.isArray(data.fixtures)?data.fixtures:[];
+  totalFixtures=Number(data.totalFixturesInCompetition||0);
+  failedCount=Array.isArray(data.failed)?data.failed.length:Number(data.failed||0);
+
+  render();
+
+  $('updated').textContent=
+    'Updated '+new Date().toLocaleTimeString()+
+    ' · '+allGames.length+' selected matches'+
+    ' · '+failedCount+' detail errors'+
+    (totalFixtures?' · '+totalFixtures+' competition fixtures indexed':'');
+
+ }catch(e){
+  $('updated').textContent='Refresh failed: '+e.message;
+  console.error(e);
+ }finally{
+  $('refresh').disabled=false;
+  refreshing=false;
+ }
+}
+function restartTimer(){if(timer)clearInterval(timer);timer=null;if(auto)timer=setInterval(refreshAll,Number($('interval').value)*1000)}
+function toggleAuto(){auto=!auto;$('auto').textContent='Auto-refresh: '+(auto?'ON':'OFF');restartTimer()}
+const today=new Date();$('startDate').value=dateInput(today);$('endDate').value=dateInput(today);
+</script>
+</body>
+</html>
